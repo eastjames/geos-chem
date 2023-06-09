@@ -121,7 +121,8 @@ CONTAINS
     ENDIF
 
     ! Get species ID
-    id_CH4 = Ind_( 'CH4' )
+    !id_CH4 = Ind_( 'CH4' )
+    id_CH4 = 1
 
     ! Get dynamic timestep
     DT = GET_TS_DYN()
