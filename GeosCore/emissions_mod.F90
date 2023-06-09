@@ -278,14 +278,15 @@ CONTAINS
     ! in HEMCO_Config.rc as is done for other species. 
     ! (mps, 2/12/21)
     IF ( Input_Opt%ITS_A_CH4_SIM ) THEN
-       CALL EmissCh4( Input_Opt, State_Chm, State_Grid, State_Met, RC )
+       WRITE(*,*) 'Skipping CH4 emis, using GMD NOAA surface data instead'
+       !CALL EmissCh4( Input_Opt, State_Chm, State_Grid, State_Met, RC )
 
-       ! Trap potential errors
-       IF ( RC /= GC_SUCCESS ) THEN
-          ErrMsg = 'Error encountered in "EmissCH4"!'
-          CALL GC_Error( ErrMsg, RC, ThisLoc )
-          RETURN
-       ENDIF
+       !! Trap potential errors
+       !IF ( RC /= GC_SUCCESS ) THEN
+       !   ErrMsg = 'Error encountered in "EmissCH4"!'
+       !   CALL GC_Error( ErrMsg, RC, ThisLoc )
+       !   RETURN
+       !ENDIF
     ENDIF
 
     ! Carbon simulation (e.g. CO2-CO-CH4-OCS via KPP)

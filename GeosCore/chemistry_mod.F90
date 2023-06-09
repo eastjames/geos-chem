@@ -73,6 +73,7 @@ CONTAINS
     USE ERROR_MOD
     USE FullChem_Mod,     ONLY : Do_FullChem
     USE GLOBAL_CH4_MOD,   ONLY : CHEMCH4
+    USE Set_Global_CH4_Mod,  ONLY : Set_CH4
     USE Input_Opt_Mod,    ONLY : OptInput
     USE ISORROPIAII_MOD,  ONLY : DO_ISORROPIAII
     USE LINEAR_CHEM_MOD,  ONLY : DO_LINEAR_CHEM
@@ -949,6 +950,14 @@ CONTAINS
        ! CH4
        !=====================================================================
        ELSE IF ( Input_Opt%ITS_A_CH4_SIM ) THEN
+
+          ! Do CH4 surface concentration
+          CALL Set_CH4( Input_Opt  = Input_Opt,                              &
+                        State_Grid = State_Grid,                             &
+                        State_Met  = State_Met,                              &
+                        State_Chm  = State_Chm,                              &
+                        State_Diag = State_Diag,                             &
+                        RC         = RC                                     )
 
           ! Do CH4 chemistry
           CALL ChemCh4( Input_Opt  = Input_Opt,                              &
