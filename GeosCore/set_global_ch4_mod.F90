@@ -116,9 +116,11 @@ CONTAINS
     ThisLoc = ' -> at SET_CH4 (in module GeosCore/set_global_ch4_mod.F90)'
 
     ! Skip unless we are doing a fullchem simulation
-    IF ( .not. Input_Opt%ITS_A_FULLCHEM_SIM ) THEN
-       RETURN
-    ENDIF
+    ! JDE don't skip
+    !IF ( .not. Input_Opt%ITS_A_FULLCHEM_SIM ) THEN
+    !   RETURN
+    !ENDIF
+    ! JDE don't skip
 
     ! Get species ID
     !id_CH4 = Ind_( 'CH4' )
@@ -183,6 +185,7 @@ CONTAINS
 
        ! Prescribe methane concentrations throughout PBL
        DO L=1,PBL_TOP
+
 
           ! Compute implied CH4 flux if diagnostic is on
           IF ( State_Diag%Archive_CH4pseudoFlux ) THEN
