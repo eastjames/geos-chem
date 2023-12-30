@@ -26,8 +26,6 @@ COfromCH4   = IGNORE;  { Tracks P(CO)  from CH4   for diagnostics }
 COfromNMVOC = IGNORE;  { Tracks P(CO)  from NMVOC for diagnostics }
 CO2fromOH   = IGNORE;  { Tracks P(CO2) from OH    for diagnostics }
 Dummy       = IGNORE;  { Dummy placeholder product                }
-CH3CCl3     = IGNORE;  { CH3CCl3; Methyl chloroform   -- JDE      }
-DummyMCF    = IGNORE;  { Dummy placeholder product loss of MCF    }
 
 #DEFFIX
 FixedOH     = IGNORE;  { Externally-supplied OH concentration     }
@@ -58,11 +56,6 @@ CO  + FixedOH = CO2   + CO2fromOH   : k_Trop(2);
 // to k_Trop(3) [molec/cm3/s] * dt [s], where dt is the chemistry
 // timestep.  k_Trop(3) contains externally-supplied P(CO) from NMVOC.
 DummyNMVOC    = CO    + COfromNMVOC : k_Trop(3);
-
-//OH + CH3CCl3 = 3.000Cl + H2O :               GCARR_ac(1.64d-12, -1520.0d0);
-// FixedOH + CH3CCl3 = 3.000Cl + H2O        : 1.64d-12*EXP(-1520.0d0/TEMP); {2014/02/03; Eastham2014; SDE}
-FixedOH + CH3CCl3 = DummyMCF        : 1.64d-12*EXP(-1520.0d0/TEMP); {2014/02/03; Eastham2014; SDE}
-
 //
 // %%%%%%%%%%%%%%%%%%%%%%%%
 // %%%%%  STRAT CHEM  %%%%%
@@ -79,12 +72,3 @@ DummyCH4      = CO                  : k_Strat(2);
 //
 // Rate k_Strat(3) [1/s] is set to HEMCO-supplied stratospheric loss of CO
 CO            = CO2   + CO2fromOH   : k_Strat(3);
-
-
-// PHOTOLYSIS
-
-// CH3CCl3 + hv = 3.000Cl :                     PHOTOL(44);     {2014/02/03; Eastham2014; SDE}
-CH3CCl3 + hv = DummyMCF :                     PHOTOL(44);     {2014/02/03; Eastham2014; SDE}
-
-
-
