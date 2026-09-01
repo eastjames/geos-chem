@@ -177,10 +177,12 @@ CONTAINS
     USE History_Util_Mod
     USE Input_Opt_Mod,          ONLY : OptInput
     USE JulDay_Mod,             ONLY : CalDate
+    USE M_Netcdf_Io_Define,     ONLY : NcDef_Var_Attributes
     USE MetaHistItem_Mod,       ONLY : MetaHistItem
     USE Ncdf_Mod
     USE netCDF,                 ONLY : NF90_UNLIMITED
     USE Registry_Params_Mod,    ONLY : KINDVAL_F4
+    USE TropomiSwathModule,     ONLY : IsSampledCollection
 !
 ! !INPUT PARAMETERS:
 !
@@ -553,6 +555,32 @@ CONTAINS
                            avgMethod    = Current%Item%AvgMethod,         &
                            bounds       = VarBounds                      )
 
+          !---------------------------------------------------------------
+          ! SATELLITE SWATH SAMPLING: for collections that get swath-
+          ! sampled, declare the "_FillValue" attribute.  History_Netcdf_
+          ! Write stores UNDEFINED / UNDEFINED_DBL in out-of-swath grid
+          ! boxes; without this attribute those values would be read back
+          ! as ordinary data (e.g. by xarray) and silently corrupt any
+          ! statistics computed from the file.
+          !
+          ! NOTE: GEOS-Chem's own netCDF reader (NcdfUtil/ncdf_mod.F90)
+          ! masks missing data with an exact equality test, so the fill
+          ! value must be a finite sentinel, not a NaN.
+          !---------------------------------------------------------------
+          IF ( IsSampledCollection( Container%Name ) ) THEN
+             IF ( Current%Item%Output_KindVal == KINDVAL_F4 ) THEN
+                CALL NcDef_Var_Attributes( Container%FileId,               &
+                                           Current%Item%NcVarId,          &
+                                           '_FillValue',                  &
+                                           Current%Item%MissingValue4    )
+             ELSE
+                CALL NcDef_Var_Attributes( Container%FileId,               &
+                                           Current%Item%NcVarId,          &
+                                           '_FillValue',                  &
+                                           Current%Item%MissingValue8    )
+             ENDIF
+          ENDIF
+
 #if defined( NC_HAS_COMPRESSION )
           ! Turn on netCDF chunking for this HISTORY ITEM
           ! NOTE: This will only work if the netCDF library supports netCDF-4
@@ -677,6 +705,7 @@ CONTAINS
 !
     USE CharPak_Mod,         ONLY : To_Uppercase
     USE ErrCode_Mod
+    USE Grid_Registry_Mod,   ONLY : Lookup_Grid
     USE HistItem_Mod,        ONLY : HistItem
     USE HistContainer_Mod,   ONLY : HistContainer
     USE History_Util_Mod
@@ -685,6 +714,7 @@ CONTAINS
     USE M_Netcdf_Io_Write,   ONLY : NcWr
     USE MetaHistItem_Mod,    ONLY : MetaHistItem
     USE Registry_Params_Mod, ONLY : KINDVAL_F4
+    USE TropomiSwathModule,  ONLY : BuildTropomiSwathMask, IsSampledCollection
 
 !
 ! !INPUT PARAMETERS:
@@ -720,8 +750,19 @@ CONTAINS
     INTEGER                     :: NcFileId,         NcVarId
     INTEGER                     :: Dim1,             Dim2,       Dim3
 
+    ! Scalars for swath sampling
+    LOGICAL                     :: doSwathSample
+    INTEGER                     :: I,                J
+    INTEGER                     :: nX_Sub,           nY_Sub
+    REAL(f8)                    :: HourUTC
+
     ! Strings
     CHARACTER(LEN=255)          :: ErrMsg,           ThisLoc
+
+    ! Arrays for swath sampling
+    LOGICAL,        ALLOCATABLE :: SwathMask(:,:)
+    REAL(f8),       ALLOCATABLE :: SubLon(:),        SubLat(:)
+    REAL(f8),       POINTER     :: GridLon(:),       GridLat(:)
 
     ! Arrays
     INTEGER                     :: St1d(1),          Ct1d(1)
@@ -762,6 +803,8 @@ CONTAINS
     NcFileId  =  Container%FileId
     Current   => NULL()
     Item      => NULL()
+    GridLon   => NULL()
+    GridLat   => NULL()
     ErrMsg    =  ''
     ThisLoc   =  &
          ' -> at History_Netcdf_Write (in History/history_netcdf_mod.F90)'
@@ -815,6 +858,86 @@ CONTAINS
 
     ! Write the time stamp to the file
     CALL NcWr( NcTimeVal, NcFileId, 'time', St1d, Ct1d )
+
+    !========================================================================
+    ! SATELLITE SWATH SAMPLING
+    !
+    ! For the collections listed in TropomiSwathModule, build a 2-D logical
+    ! mask (TRUE = grid box lies in the satellite overpass swath at this
+    ! time).  Grid boxes where the mask is FALSE will be replaced by the
+    ! History missing value (UNDEFINED / UNDEFINED_DBL, i.e. -1e31) just
+    ! before being written to disk.
+    !
+    ! The mask is built ONCE per file write and reused for every HISTORY
+    ! ITEM in the collection, since all items share the same horizontal grid.
+    !========================================================================
+    doSwathSample = IsSampledCollection( Container%Name )
+
+    IF ( doSwathSample ) THEN
+
+       ! Hour of day (UTC), taken from the container's current time
+       ! (Container%CurrentHms is an integer HHMMSS value)
+       HourUTC = REAL( Container%CurrentHms / 10000,         f8 )            &
+               + REAL( MOD( Container%CurrentHms / 100, 100 ), f8 ) / 60.0_f8&
+               + REAL( MOD( Container%CurrentHms,       100 ), f8 ) / 3600.0_f8
+
+       ! Number of grid boxes in this collection's horizontal subset.
+       ! HISTORY ITEM arrays are dimensioned on the subset, so array index
+       ! (I,J) corresponds to global grid index (X0+I-1, Y0+J-1).
+       nX_Sub = Container%X1 - Container%X0 + 1
+       nY_Sub = Container%Y1 - Container%Y0 + 1
+
+       ! Get pointers to the global lon/lat center arrays registered in
+       ! GeosUtil/grid_registry_mod.F90 (these are State_Grid%XMid(:,1)
+       ! and State_Grid%YMid(1,:), i.e. sized NX and NY respectively)
+       CALL Lookup_Grid( Input_Opt = Input_Opt,  Variable = 'GRID_LON',      &
+                         Ptr1d_8   = GridLon,    RC       = RC              )
+       IF ( RC /= GC_SUCCESS ) THEN
+          ErrMsg = 'Error in "Lookup_Grid" for "GRID_LON"!'
+          CALL GC_Error( ErrMsg, RC, ThisLoc )
+          RETURN
+       ENDIF
+
+       CALL Lookup_Grid( Input_Opt = Input_Opt,  Variable = 'GRID_LAT',      &
+                         Ptr1d_8   = GridLat,    RC       = RC              )
+       IF ( RC /= GC_SUCCESS ) THEN
+          ErrMsg = 'Error in "Lookup_Grid" for "GRID_LAT"!'
+          CALL GC_Error( ErrMsg, RC, ThisLoc )
+          RETURN
+       ENDIF
+
+       ! Extract the lon/lat centers for this collection's subset
+       ALLOCATE( SubLon( nX_Sub ), SubLat( nY_Sub ), STAT=RC )
+       IF ( RC /= GC_SUCCESS ) THEN
+          ErrMsg = 'Could not allocate "SubLon"/"SubLat"!'
+          CALL GC_Error( ErrMsg, RC, ThisLoc )
+          RETURN
+       ENDIF
+       SubLon = GridLon( Container%X0 : Container%X1 )
+       SubLat = GridLat( Container%Y0 : Container%Y1 )
+
+       ! Build the swath mask
+       ALLOCATE( SwathMask( nX_Sub, nY_Sub ), STAT=RC )
+       IF ( RC /= GC_SUCCESS ) THEN
+          ErrMsg = 'Could not allocate "SwathMask"!'
+          CALL GC_Error( ErrMsg, RC, ThisLoc )
+          RETURN
+       ENDIF
+       CALL BuildTropomiSwathMask( HourUTC, SubLon, SubLat, SwathMask )
+
+       ! Debug output
+       IF ( Input_Opt%Verbose ) THEN
+          WRITE( 6, 120 ) TRIM( Container%Name ), HourUTC,                   &
+                          COUNT( SwathMask ), nX_Sub * nY_Sub
+120       FORMAT( '     - Swath sampling ', a, '; UTC hour = ', f6.3,        &
+                  '; boxes in swath = ', i0, ' of ', i0 )
+       ENDIF
+
+       DEALLOCATE( SubLon, SubLat, STAT=RC )
+       GridLon => NULL()
+       GridLat => NULL()
+
+    ENDIF
 
     !========================================================================
     ! Loop over all of the HISTORY ITEMS belonging to this collection
@@ -911,6 +1034,30 @@ CONTAINS
 
              ENDIF
 
+             !------------------------------------------------------------
+             ! SATELLITE SWATH SAMPLING: replace out-of-swath grid boxes
+             ! with the History missing value (UNDEFINED = -1e31), which is
+             ! also written as the "_FillValue" attribute in
+             ! History_Netcdf_Define.  Skip if the item's horizontal dims
+             ! don't match the mask (e.g. a 3-D item not on the xyz grid).
+             !------------------------------------------------------------
+             IF ( doSwathSample ) THEN
+             IF ( Dim1 == SIZE( SwathMask, 1 )  .and.                        &
+                  Dim2 == SIZE( SwathMask, 2 ) ) THEN
+                DO J = 1, Dim2
+                DO I = 1, Dim1
+                   IF ( .not. SwathMask(I,J) ) THEN
+                      IF ( output4Bytes ) THEN
+                         NcData_4d4(I,J,:,1) = UNDEFINED
+                      ELSE
+                         NcData_4d8(I,J,:,1) = UNDEFINED_DBL
+                      ENDIF
+                   ENDIF
+                ENDDO
+                ENDDO
+             ENDIF
+             ENDIF
+
              ! Compute start and count fields
              St4d = (/ 1,    1,    1,    Container%CurrTimeSlice /)
              Ct4d = (/ Dim1, Dim2, Dim3, 1                       /)
@@ -975,6 +1122,20 @@ CONTAINS
                 Item%Data_2d  = 0.0_f8
                 Item%nUpdates = 0.0_f8
 
+             ENDIF
+
+             !------------------------------------------------------------
+             ! SATELLITE SWATH SAMPLING (2-D fields)
+             !------------------------------------------------------------
+             IF ( doSwathSample ) THEN
+             IF ( Dim1 == SIZE( SwathMask, 1 )  .and.                        &
+                  Dim2 == SIZE( SwathMask, 2 ) ) THEN
+                IF ( output4Bytes ) THEN
+                   WHERE( .not. SwathMask ) NcData_3d4(:,:,1) = UNDEFINED
+                ELSE
+                   WHERE( .not. SwathMask ) NcData_3d8(:,:,1) = UNDEFINED_DBL
+                ENDIF
+             ENDIF
              ENDIF
 
              ! Compute start and count fields
@@ -1061,6 +1222,9 @@ CONTAINS
     ! Free pointers
     Current => NULL()
     Item    => NULL()
+
+    ! Free the swath mask
+    IF ( ALLOCATED( SwathMask ) ) DEALLOCATE( SwathMask )
 
   END SUBROUTINE History_NetCdf_Write
 !EOC

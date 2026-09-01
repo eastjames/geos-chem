@@ -6,6 +6,7 @@ add_library(History STATIC EXCLUDE_FROM_ALL
 	history_util_mod.F90
 	metahistcontainer_mod.F90
 	metahistitem_mod.F90
+	simplesampler.F90
 )
 target_link_libraries(History
 	PUBLIC GeosUtil
