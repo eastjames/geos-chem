@@ -184,6 +184,8 @@ CONTAINS
     REAL(8) :: CrossTrackKM
     REAL(8) :: AlongSide
     REAL(8) :: HalfWidthKM
+    REAL(8) :: HalfWidthAngle
+    REAL(8) :: AlongSideThreshold
 
     ! --- Ascending-node longitude implied by the 13:30 LST condition ---
     Lon0Deg = MODULO( 15.0_8 * ( ASCENDING_NODE_LST_HR - HourUTC ), 360.0_8 )
@@ -225,7 +227,11 @@ CONTAINS
 
     HalfWidthKM = ( SWATH_WIDTH_KM / 2.0_8 ) * MARGIN_FACTOR
 
-    InSwath = ( ABS(CrossTrackKM) <= HalfWidthKM ) .and. ( AlongSide > 0.0_8 )
+    HalfWidthAngle = HalfWidthKM / EARTH_RADIUS_KM   ! radians
+    AlongSideThreshold = -sin(HalfWidthAngle)
+
+    InSwath = ( ABS(CrossTrackKM) <= HalfWidthKM ) .and.                     &
+              ( AlongSide > AlongSideThreshold )
 
   END SUBROUTINE PointInTropomiSwath
 !EOC
